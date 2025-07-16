@@ -28,6 +28,7 @@ public class ApparelOrderMapper extends AppianSmartService {
     private String azureOpenAIEndpoint;
     private String azureOpenAIKey;
     private String azureOpenAIDeploymentName;
+    private String azureOpenAIApiVersion;
 
     // Output parameters
     private String mappedResult;
@@ -174,6 +175,11 @@ public class ApparelOrderMapper extends AppianSmartService {
         this.azureOpenAIDeploymentName = azureOpenAIDeploymentName;
     }
 
+    @Input(required = Required.ALWAYS)
+    public void setAzureOpenAIApiVersion(String azureOpenAIApiVersion) {
+        this.azureOpenAIApiVersion = azureOpenAIApiVersion;
+    }
+
     // Getters for output parameters
     public String getMappedResult() {
         return mappedResult;
@@ -195,14 +201,8 @@ public class ApparelOrderMapper extends AppianSmartService {
             // Convert input dictionary to string format
             String inputDataString = convertInputDictionaryToString(inputDictionary);
 
-            // Check rate limits before making API call
-            rateLimiter.checkRateLimit(clientId);
-
-            // Call Azure OpenAI with retry logic
-            String openAIResponse = callAzureOpenAIWithRetry(inputDataString);
-
-            // Parse the response using proper JSON parsing
-            parseOpenAIResponseWithJackson(openAIResponse);
+            // Process single request (chunking disabled - 8192 tokens should be sufficient)
+            processSingleRequest(inputDataString);
 
         } catch (SmartServiceException e) {
             throw e;
@@ -211,6 +211,158 @@ public class ApparelOrderMapper extends AppianSmartService {
                     ApparelOrderMapper.class,
                     e,
                     "Error processing apparel order mapping: " + e.getMessage());
+        }
+    }
+
+    private boolean needsChunking(String inputData) {
+        // Estimate tokens (rough approximation: 1 token ≈ 4 characters)
+        int estimatedTokens = inputData.length() / 4;
+        return estimatedTokens > IntelliMapConfig.MAX_INPUT_TOKENS_PER_CHUNK;
+    }
+
+    private void processChunkedInput(String inputData) throws SmartServiceException {
+        try {
+            // Parse input data to get dictionary entries
+            Map<String, Object> inputMap = parseInputToMap(inputData);
+            List<String> inputKeys = new ArrayList<>(inputMap.keySet());
+
+            // Split into chunks
+            List<List<String>> chunks = createChunks(inputKeys, IntelliMapConfig.MAX_INPUT_KEYS_PER_CHUNK);
+
+            // Process each chunk
+            List<String> chunkResults = new ArrayList<>();
+            for (int i = 0; i < Math.min(chunks.size(), IntelliMapConfig.MAX_CHUNKS_PER_REQUEST); i++) {
+                List<String> chunk = chunks.get(i);
+                Map<String, Object> chunkData = createChunkData(inputMap, chunk);
+                String chunkJson = convertMapToJsonString(chunkData);
+
+                // Check rate limits before making API call
+                rateLimiter.checkRateLimit(clientId);
+
+                // Process chunk
+                String chunkResult = callAzureOpenAIWithRetry(chunkJson);
+                chunkResults.add(chunkResult);
+            }
+
+            // Merge results from all chunks
+            mergeChunkResults(chunkResults);
+
+        } catch (Exception e) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error processing chunked input: " + e.getMessage());
+        }
+    }
+
+    private void processSingleRequest(String inputData) throws SmartServiceException {
+        try {
+            // Check rate limits before making API call
+            rateLimiter.checkRateLimit(clientId);
+
+            // Call Azure OpenAI with retry logic
+            String openAIResponse = callAzureOpenAIWithRetry(inputData);
+
+            // Parse the response using proper JSON parsing
+            parseOpenAIResponseWithJackson(openAIResponse);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Processing interrupted during rate limiting");
+        }
+    }
+
+    private Map<String, Object> parseInputToMap(String inputData) throws SmartServiceException {
+        try {
+            // Try to parse as JSON first
+            if (inputData.trim().startsWith("{")) {
+                return objectMapper.readValue(inputData, Map.class);
+            } else {
+                // Handle non-JSON format (fallback)
+                Map<String, Object> result = new HashMap<>();
+                String[] lines = inputData.split("\n");
+                for (String line : lines) {
+                    if (line.contains("=")) {
+                        String[] parts = line.split("=", 2);
+                        if (parts.length == 2) {
+                            result.put(parts[0].trim(), parts[1].trim());
+                        }
+                    }
+                }
+                return result;
+            }
+        } catch (Exception e) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error parsing input data: " + e.getMessage());
+        }
+    }
+
+    private List<List<String>> createChunks(List<String> inputKeys, int maxKeysPerChunk) {
+        List<List<String>> chunks = new ArrayList<>();
+        for (int i = 0; i < inputKeys.size(); i += maxKeysPerChunk) {
+            int end = Math.min(i + maxKeysPerChunk, inputKeys.size());
+            chunks.add(inputKeys.subList(i, end));
+        }
+        return chunks;
+    }
+
+    private Map<String, Object> createChunkData(Map<String, Object> fullData, List<String> chunkKeys) {
+        Map<String, Object> chunkData = new HashMap<>();
+        for (String key : chunkKeys) {
+            if (fullData.containsKey(key)) {
+                chunkData.put(key, fullData.get(key));
+            }
+        }
+        return chunkData;
+    }
+
+    private void mergeChunkResults(List<String> chunkResults) throws SmartServiceException {
+        try {
+            List<Map<String, Object>> allFields = new ArrayList<>();
+
+            for (String chunkResult : chunkResults) {
+                // Parse each chunk result
+                JsonNode responseNode = objectMapper.readTree(chunkResult);
+                String content = responseNode.path("choices")
+                        .path(0)
+                        .path("message")
+                        .path("content")
+                        .asText();
+
+                if (content != null && !content.trim().isEmpty()) {
+                    // Try to extract result array from content
+                    try {
+                        JsonNode contentNode = objectMapper.readTree(content);
+                        JsonNode resultNode = contentNode.path("result");
+
+                        if (!resultNode.isMissingNode() && resultNode.isArray()) {
+                            for (JsonNode field : resultNode) {
+                                Map<String, Object> fieldMap = objectMapper.convertValue(field, Map.class);
+                                allFields.add(fieldMap);
+                            }
+                        }
+                    } catch (JsonProcessingException e) {
+                        // Skip malformed chunk result
+                    }
+                }
+            }
+
+            // Create final merged result
+            Map<String, Object> finalResult = new HashMap<>();
+            finalResult.put("result", allFields);
+
+            this.mappedResult = objectMapper.writeValueAsString(finalResult);
+            this.overallConfidence = calculateOverallConfidence(this.mappedResult);
+
+        } catch (Exception e) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error merging chunk results: " + e.getMessage());
         }
     }
 
@@ -241,6 +393,13 @@ public class ApparelOrderMapper extends AppianSmartService {
                     ApparelOrderMapper.class,
                     null,
                     "Azure OpenAI deployment name is required");
+        }
+
+        if (azureOpenAIApiVersion == null || azureOpenAIApiVersion.trim().isEmpty()) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    null,
+                    "Azure OpenAI API version is required");
         }
     }
 
@@ -293,7 +452,7 @@ public class ApparelOrderMapper extends AppianSmartService {
 
             // Build the request URL
             String url = azureOpenAIEndpoint + "/openai/deployments/" + azureOpenAIDeploymentName
-                    + "/chat/completions?api-version=" + IntelliMapConfig.AZURE_OPENAI_API_VERSION;
+                    + "/chat/completions?api-version=" + azureOpenAIApiVersion;
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -343,8 +502,8 @@ public class ApparelOrderMapper extends AppianSmartService {
             messages.add(userMessage);
 
             requestMap.put("messages", messages);
-            requestMap.put("max_tokens", 4000); // Increased for larger response
-            requestMap.put("temperature", 0.1);
+            requestMap.put("max_tokens", IntelliMapConfig.MAX_TOKENS); // Use configurable max tokens
+            requestMap.put("temperature", IntelliMapConfig.TEMPERATURE);
 
             return objectMapper.writeValueAsString(requestMap);
 

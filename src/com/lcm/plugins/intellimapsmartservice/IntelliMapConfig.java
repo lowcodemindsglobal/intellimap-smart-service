@@ -14,10 +14,15 @@ public class IntelliMapConfig {
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
     public static final Duration RATE_LIMIT_DELAY = Duration.ofMillis(1000); // 1 second delay between calls
 
-    // Request Configuration
-    public static final int MAX_TOKENS = 1000;
+    // Request Configuration - Increased for larger responses
+    public static final int MAX_TOKENS = 8192; // Increased from 1000 to 8192 (GPT-4 max)
     public static final double TEMPERATURE = 0.1;
     public static final int MAX_RETRIES = 3;
+
+    // Chunking Configuration for Large Inputs
+    public static final int MAX_INPUT_TOKENS_PER_CHUNK = 6000; // Leave room for system prompt
+    public static final int MAX_INPUT_KEYS_PER_CHUNK = 50; // Maximum dictionary keys per chunk
+    public static final int MAX_CHUNKS_PER_REQUEST = 5; // Maximum chunks to process in one request
 
     // Rate Limiting Configuration
     public static final int MAX_REQUESTS_PER_MINUTE = 60;
