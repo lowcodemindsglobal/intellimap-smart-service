@@ -37,13 +37,6 @@ public class IntelliMapConfig {
     // System Message for OpenAI
     public static final String SYSTEM_MESSAGE = "You are a data mapping assistant that extracts and maps customer information.";
 
-    // Default Prompt
-    public static final String DEFAULT_PROMPT = "Analyze the following customer data and extract key-value pairs. " +
-            "Map the data to standard customer fields like: firstName, lastName, email, phone, address, company, etc. "
-            +
-            "Return the result as a JSON object with mapped fields and a confidence score (0-1). " +
-            "Format: {\"mappedData\": {...}, \"confidenceScore\": 0.95}";
-
     // HTTP Headers
     public static final String CONTENT_TYPE_JSON = "application/json";
     public static final String API_KEY_HEADER = "api-key";

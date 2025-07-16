@@ -1,11 +1,11 @@
 <appian-plugin name="IntelliMap Smart Service" key="com.lcm.plugins.intellimapsmartservice">
 	<plugin-info>
-		<description>Smart service for intelligent mapping operations using Azure OpenAI</description>
+		<description>Specialized smart service for mapping apparel order data to 106 canonical fields using Azure OpenAI</description>
 		<vendor name="LCM" url="http://www.lcm.com" />
-		<version>1.0.0</version>
+		<version>2.0.0</version>
 		<application-version min="24.2" />
 	</plugin-info>
 	
 	<!--  Smart Services  -->
-	<smart-service name="IntelliMap Smart Service" key="intellimap-smart-service" class="com.lcm.plugins.intellimapsmartservice.IntelliMapSmartService" />
+	<smart-service name="Apparel Order Mapper" key="apparel-order-mapper" class="com.lcm.plugins.intellimapsmartservice.ApparelOrderMapper" />
 </appian-plugin> 
