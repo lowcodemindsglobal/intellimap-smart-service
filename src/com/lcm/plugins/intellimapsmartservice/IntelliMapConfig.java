@@ -10,7 +10,6 @@ import java.lang.String;
 public class IntelliMapConfig {
 
     // Azure OpenAI Configuration
-    public static final String AZURE_OPENAI_API_VERSION = "2023-05-15";
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
     public static final Duration RATE_LIMIT_DELAY = Duration.ofMillis(1000); // 1 second delay between calls
 

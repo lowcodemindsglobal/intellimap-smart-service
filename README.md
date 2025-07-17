@@ -156,16 +156,39 @@ Double confidence = smartService.getConfidenceScore();
 ```java
 // In Appian Process Model
 ApparelOrderMapper apparelMapper = new ApparelOrderMapper();
-apparelMapper.setInputDictionary(orderData);
+apparelMapper.setInputRecords(orderData);
 apparelMapper.setAzureOpenAIEndpoint("https://your-resource.openai.azure.com/");
 apparelMapper.setAzureOpenAIKey("your-api-key");
 apparelMapper.setAzureOpenAIDeploymentName("your-deployment");
+apparelMapper.setAzureOpenAIApiVersion("2023-05-15");
+apparelMapper.setTargetFields(targetFieldsList);
+apparelMapper.setUserPrompt("Custom mapping instructions");
 
 apparelMapper.run();
 
 String mappedResult = apparelMapper.getMappedResult();
 Double overallConfidence = apparelMapper.getOverallConfidence();
 ```
+
+#### Input Parameters
+
+**Required Parameters:**
+- `inputRecords` (TypedValue): Appian Dictionary containing raw order data to be mapped
+- `azureOpenAIEndpoint` (String): Azure OpenAI service endpoint URL
+- `azureOpenAIKey` (String): API key for Azure OpenAI service
+- `azureOpenAIDeploymentName` (String): Specific deployment name for Azure OpenAI
+- `azureOpenAIApiVersion` (String): API version for Azure OpenAI service (e.g., "2023-05-15")
+- `targetFields` (TypedValue): List of target fields to map to (Text List)
+- `userPrompt` (String): Custom prompt to guide the mapping process
+
+**Target Fields Format:**
+The `targetFields` parameter should be a list of strings in one of these formats:
+- `"F20:External Material Group"` (code:name format)
+- `"F20 - External Material Group"` (code - name format)
+- `"External Material Group"` (name only, auto-generates code)
+
+**User Prompt:**
+The `userPrompt` parameter allows you to provide custom instructions for the mapping process. This will be prepended to the system prompt.
 
 #### Input Format
 The Apparel Order Mapper expects an Appian Dictionary containing raw order data. Example:
@@ -210,9 +233,9 @@ The mapper returns a JSON array with mapped fields and confidence scores:
 ]
 ```
 
-## Apparel Order Mapper - 106 Canonical Fields
+## Apparel Order Mapper - Configurable Target Fields
 
-The Apparel Order Mapper maps input data to the following 106 standardized fields:
+The Apparel Order Mapper maps input data to configurable target fields. The following is an example of the original 106 standardized fields that can be used as a reference:
 
 ### Product Information (F-series fields)
 - **F2, F2_1, F2_2**: Customer Style Number and variants
@@ -297,6 +320,8 @@ The Apparel Order Mapper maps input data to the following 106 standardized field
 - **P7**: Sizewise PO Pricing (ThirdParty Orders)
 - **S1**: QTY
 - **S2**: FOB
+
+**Note:** These fields are now configurable through the `targetFields` input parameter. You can define your own custom field mappings or use a subset of these fields based on your specific requirements.
 
 ## Error Handling
 

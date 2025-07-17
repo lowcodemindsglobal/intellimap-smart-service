@@ -24,11 +24,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 public class ApparelOrderMapper extends AppianSmartService {
 
     // Input parameters
-    private TypedValue inputDictionary;
+    private TypedValue inputRecords;
     private String azureOpenAIEndpoint;
     private String azureOpenAIKey;
     private String azureOpenAIDeploymentName;
     private String azureOpenAIApiVersion;
+    private TypedValue targetFields;
+    private String userPrompt;
 
     // Output parameters
     private String mappedResult;
@@ -41,123 +43,10 @@ public class ApparelOrderMapper extends AppianSmartService {
     // Client identifier for rate limiting
     private String clientId;
 
-    // Target fields mapping
-    private static final Map<String, String> TARGET_FIELDS = new HashMap<>();
-
-    static {
-        // Initialize the 106 canonical fields
-        TARGET_FIELDS.put("F20", "External Material Group");
-        TARGET_FIELDS.put("F2", "Customer Style Number");
-        TARGET_FIELDS.put("F2_1", "Cust Style_1");
-        TARGET_FIELDS.put("F2_2", "Cust Style_2");
-        TARGET_FIELDS.put("F6", "Color Code");
-        TARGET_FIELDS.put("F6_1", "Color Code_1");
-        TARGET_FIELDS.put("F6_2", "Color Code_2");
-        TARGET_FIELDS.put("F6_3", "Color Code_3");
-        TARGET_FIELDS.put("C1", "Season");
-        TARGET_FIELDS.put("C1_1", "Season_1");
-        TARGET_FIELDS.put("C1_2", "Season_2");
-        TARGET_FIELDS.put("F5", "Style Description");
-        TARGET_FIELDS.put("F7", "Color Description");
-        TARGET_FIELDS.put("F52", "FG Criteria (Basic Material)");
-        TARGET_FIELDS.put("O9", "Customer Purchase Order");
-        TARGET_FIELDS.put("O9_1", "Customer Purchase Order_1");
-        TARGET_FIELDS.put("O9_2", "Customer Purchase Order_2");
-        TARGET_FIELDS.put("O35", "PO LI");
-        TARGET_FIELDS.put("O10", "Vendor Purchase Order");
-        TARGET_FIELDS.put("F13", "Unit of Measure (for FG)");
-        TARGET_FIELDS.put("F13_1", "Unit of Measure (for FG)_1");
-        TARGET_FIELDS.put("F14", "Denominator");
-        TARGET_FIELDS.put("F19", "Material Group");
-        TARGET_FIELDS.put("F41", "Alternative UOM");
-        TARGET_FIELDS.put("F22", "Product Hierarchy Description");
-        TARGET_FIELDS.put("F21", "Product Hierarchy");
-        TARGET_FIELDS.put("F21_1", "Customer Product Reference_1");
-        TARGET_FIELDS.put("F15", "Product Type");
-        TARGET_FIELDS.put("F25", "Def. Grid Value");
-        TARGET_FIELDS.put("F8", "Master Grid");
-        TARGET_FIELDS.put("F44", "Material description");
-        TARGET_FIELDS.put("C6", "Customer Department");
-        TARGET_FIELDS.put("C6_1", "Customer Department _1");
-        TARGET_FIELDS.put("F29", "Gender");
-        TARGET_FIELDS.put("F29_1", "Gender_1");
-        TARGET_FIELDS.put("F24", "SAP Fabric Content Code Description");
-        TARGET_FIELDS.put("F23", "SAP Fabric Content Code");
-        TARGET_FIELDS.put("F23_1", "Customer FCC_1");
-        TARGET_FIELDS.put("F31", "Customer Reference 1");
-        TARGET_FIELDS.put("F32", "Customer Reference 2");
-        TARGET_FIELDS.put("F33", "Customer Reference 3");
-        TARGET_FIELDS.put("F36", "Special Procurement Type");
-        TARGET_FIELDS.put("F46", "Purch Org");
-        TARGET_FIELDS.put("F47", "Price Unit");
-        TARGET_FIELDS.put("F9", "FG Sizes");
-        TARGET_FIELDS.put("O11", "FG Order Quantity");
-        TARGET_FIELDS.put("F30", "Product Family");
-        TARGET_FIELDS.put("C2", "Sales Organization");
-        TARGET_FIELDS.put("C3", "Storage Location");
-        TARGET_FIELDS.put("C4", "Distribution Channel");
-        TARGET_FIELDS.put("C5", "Division");
-        TARGET_FIELDS.put("F18", "Material Type");
-        TARGET_FIELDS.put("F26", "HS Code");
-        TARGET_FIELDS.put("F26_1", "HS Code_1");
-        TARGET_FIELDS.put("F27", "Purchasing Group (for 3rd Party Finished Goods)");
-        TARGET_FIELDS.put("F28", "Prod. Stor. Location");
-        TARGET_FIELDS.put("O38", "Automation team (Apex/Non-Apex)");
-        TARGET_FIELDS.put("O22", "Possible RM InHouse Date");
-        TARGET_FIELDS.put("O6", "Customer Number (Sold to Party)");
-        TARGET_FIELDS.put("O6_1", "Customer Number (Sold to Party)_1");
-        TARGET_FIELDS.put("O6_2", "Customer Number (Sold to Party)_2");
-        TARGET_FIELDS.put("O6_3", "Customer Number (Sold to Party)_3");
-        TARGET_FIELDS.put("L2", "Ship to party");
-        TARGET_FIELDS.put("L2_1", "Ship to party_1");
-        TARGET_FIELDS.put("L2_2", "Ship to party_2");
-        TARGET_FIELDS.put("L3", "Ship Mode");
-        TARGET_FIELDS.put("L3_1", "Ship Mode_1");
-        TARGET_FIELDS.put("O39", "Requirement category");
-        TARGET_FIELDS.put("L1", "Regions");
-        TARGET_FIELDS.put("L1_1", "Regions_1");
-        TARGET_FIELDS.put("L1_2", "Regions_2");
-        TARGET_FIELDS.put("O16", "Actual Production Plant Allocated");
-        TARGET_FIELDS.put("L6", "Requested Delivery Date");
-        TARGET_FIELDS.put("L4", "GAC");
-        TARGET_FIELDS.put("L7", "NDC");
-        TARGET_FIELDS.put("L8", "Order Delivery Tolerance");
-        TARGET_FIELDS.put("O55", "Under Delivery Tolerance");
-        TARGET_FIELDS.put("O8", "Order Type");
-        TARGET_FIELDS.put("O24", "Order Reason");
-        TARGET_FIELDS.put("O25", "Purchase Order Type");
-        TARGET_FIELDS.put("O25_1", "Purchase Order Type_1");
-        TARGET_FIELDS.put("O25_2", "Purchase Order Type_2");
-        TARGET_FIELDS.put("O26", "Sales Office");
-        TARGET_FIELDS.put("O27", "Sales Group");
-        TARGET_FIELDS.put("O12", "Sample Type");
-        TARGET_FIELDS.put("O31", "TP Vendor (ThirdParty Orders)");
-        TARGET_FIELDS.put("O4", "Buy Sequence");
-        TARGET_FIELDS.put("O44", "Inquiry #");
-        TARGET_FIELDS.put("O45", "Usage Indicator");
-        TARGET_FIELDS.put("P6", "Standard Price (ThirdParty Orders)");
-        TARGET_FIELDS.put("P7", "Sizewise PO Pricing (ThirdParty Orders)");
-        TARGET_FIELDS.put("O46", "Buy Name");
-        TARGET_FIELDS.put("O47", "Buy Program");
-        TARGET_FIELDS.put("O2", "Buy Month");
-        TARGET_FIELDS.put("O3", "Buy Year");
-        TARGET_FIELDS.put("O36", "PP Month");
-        TARGET_FIELDS.put("O37", "PP Year");
-        TARGET_FIELDS.put("O28", "SO Sales Text");
-        TARGET_FIELDS.put("O40", "SO Short Text");
-        TARGET_FIELDS.put("S1", "QTY");
-        TARGET_FIELDS.put("S2", "FOB");
-        TARGET_FIELDS.put("P1", "FG Price (FOB)");
-        TARGET_FIELDS.put("P1_1", "FG Price (FOB)_1");
-        TARGET_FIELDS.put("F50", "SBU");
-        TARGET_FIELDS.put("F42", "Def. Stock Category");
-        TARGET_FIELDS.put("F16", "Repeat Style");
-    }
-
     // Setters for input parameters
     @Input(required = Required.ALWAYS)
-    public void setInputDictionary(TypedValue inputDictionary) {
-        this.inputDictionary = inputDictionary;
+    public void setInputRecords(TypedValue inputRecords) {
+        this.inputRecords = inputRecords;
     }
 
     @Input(required = Required.ALWAYS)
@@ -180,6 +69,16 @@ public class ApparelOrderMapper extends AppianSmartService {
         this.azureOpenAIApiVersion = azureOpenAIApiVersion;
     }
 
+    @Input(required = Required.ALWAYS)
+    public void setTargetFields(TypedValue targetFields) {
+        this.targetFields = targetFields;
+    }
+
+    @Input(required = Required.ALWAYS)
+    public void setUserPrompt(String userPrompt) {
+        this.userPrompt = userPrompt;
+    }
+
     // Getters for output parameters
     public String getMappedResult() {
         return mappedResult;
@@ -198,11 +97,8 @@ public class ApparelOrderMapper extends AppianSmartService {
             // Validate required inputs
             validateInputs();
 
-            // Convert input dictionary to string format
-            String inputDataString = convertInputDictionaryToString(inputDictionary);
-
-            // Process single request (chunking disabled - 8192 tokens should be sufficient)
-            processSingleRequest(inputDataString);
+            // Process multiple records
+            processMultipleRecords();
 
         } catch (SmartServiceException e) {
             throw e;
@@ -366,12 +262,303 @@ public class ApparelOrderMapper extends AppianSmartService {
         }
     }
 
+    private void processMultipleRecords() throws SmartServiceException {
+        // Declare variables outside try block so they're accessible in catch block
+        List<Map<String, Object>> records = null;
+        int processedRecords = 0;
+
+        try {
+            // Get the input records
+            Object value = inputRecords.getValue();
+            if (value == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Input records value is null");
+            }
+
+            // Log the input type for debugging
+            System.out.println("Input type: " + value.getClass().getSimpleName());
+            if (value instanceof String) {
+                String strValue = (String) value;
+                System.out.println("Input string length: " + strValue.length());
+                System.out.println("Input string preview: "
+                        + (strValue.length() > 100 ? strValue.substring(0, 100) + "..." : strValue));
+
+                // Check if this looks like an Appian Dictionary format
+                if (strValue.startsWith("[*") && strValue.contains(":*")) {
+                    System.out.println("Detected potential Appian Dictionary format");
+                }
+            } else if (value instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> mapValue = (Map<String, Object>) value;
+                System.out.println("Input is a Map with " + mapValue.size() + " entries");
+                System.out.println("Map keys: " + mapValue.keySet());
+            }
+
+            records = new ArrayList<>();
+
+            if (value instanceof List) {
+                @SuppressWarnings("unchecked")
+                List<Object> recordList = (List<Object>) value;
+                for (Object record : recordList) {
+                    if (record instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> recordMap = (Map<String, Object>) record;
+                        records.add(recordMap);
+                    }
+                }
+            } else if (value instanceof Map) {
+                // Single record case
+                @SuppressWarnings("unchecked")
+                Map<String, Object> recordMap = (Map<String, Object>) value;
+                records.add(recordMap);
+            } else if (value instanceof String) {
+                // Handle string input (JSON or custom format)
+                String inputString = (String) value;
+                try {
+                    // Trim the string and check if it's empty
+                    inputString = inputString.trim();
+                    if (inputString.isEmpty()) {
+                        throw new SmartServiceException(
+                                ApparelOrderMapper.class,
+                                null,
+                                "Input string is empty");
+                    }
+
+                    // Check if it looks like Appian Dictionary format (starts with [*)
+                    if (inputString.startsWith("[*")) {
+                        // Try to parse as Appian Dictionary format
+                        System.out.println("Parsing Appian Dictionary format");
+                        System.out.println("Input format preview: "
+                                + (inputString.length() > 200 ? inputString.substring(0, 200) + "..." : inputString));
+                        Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
+                        records.add(recordMap);
+                        System.out.println("Successfully parsed 1 record from Appian Dictionary format");
+                    } else if (inputString.startsWith("{") || inputString.startsWith("[")) {
+                        // Try to parse as JSON (but not Appian Dictionary format)
+                        JsonNode jsonNode = objectMapper.readTree(inputString);
+                        if (jsonNode.isArray()) {
+                            // It's a JSON array of records
+                            System.out.println("Parsing JSON array with " + jsonNode.size() + " elements");
+                            for (JsonNode node : jsonNode) {
+                                if (node.isObject()) {
+                                    Map<String, Object> recordMap = objectMapper.convertValue(node, Map.class);
+                                    records.add(recordMap);
+                                } else {
+                                    System.err.println("Skipping non-object element in JSON array");
+                                }
+                            }
+                        } else if (jsonNode.isObject()) {
+                            // It's a single JSON object
+                            System.out.println("Parsing single JSON object");
+                            Map<String, Object> recordMap = objectMapper.convertValue(jsonNode, Map.class);
+                            records.add(recordMap);
+                        } else {
+                            throw new SmartServiceException(
+                                    ApparelOrderMapper.class,
+                                    null,
+                                    "JSON string must contain an object or array, got: " + jsonNode.getNodeType());
+                        }
+                        System.out.println("Successfully parsed " + records.size() + " records from JSON string");
+                    } else {
+                        // Try to parse as other custom delimited format
+                        System.out.println("Parsing other custom delimited format");
+                        System.out.println("Input format preview: "
+                                + (inputString.length() > 200 ? inputString.substring(0, 200) + "..." : inputString));
+                        Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
+                        records.add(recordMap);
+                        System.out.println("Successfully parsed 1 record from custom delimited format");
+                    }
+                } catch (Exception e) {
+                    String errorMsg = e.getMessage();
+                    if (errorMsg == null) {
+                        errorMsg = e.getClass().getSimpleName() + " occurred";
+                    }
+                    throw new SmartServiceException(
+                            ApparelOrderMapper.class,
+                            e,
+                            "Error parsing string input: " + errorMsg);
+                }
+            } else {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Input must be a list of records, a single record, or a JSON string, got: "
+                                + value.getClass().getSimpleName());
+            }
+
+            // Process each record
+            List<Map<String, Object>> allResults = new ArrayList<>();
+            double totalConfidence = 0.0;
+
+            for (Map<String, Object> record : records) {
+                try {
+                    if (record == null) {
+                        System.err.println("Skipping null record");
+                        continue;
+                    }
+
+                    // Convert record to JSON string
+                    String recordJson = convertMapToJsonString(record);
+                    if (recordJson == null || recordJson.trim().isEmpty()) {
+                        System.err.println("Skipping record with empty JSON");
+                        continue;
+                    }
+
+                    // Process single record
+                    String openAIResponse = callAzureOpenAIWithRetry(recordJson);
+                    if (openAIResponse == null || openAIResponse.trim().isEmpty()) {
+                        System.err.println("Received null or empty response from OpenAI for record");
+                        continue;
+                    }
+
+                    // Parse the response
+                    JsonNode responseNode = null;
+                    try {
+                        responseNode = objectMapper.readTree(openAIResponse);
+                    } catch (Exception e) {
+                        System.err.println("Error parsing OpenAI response JSON: " + e.getMessage());
+                        continue;
+                    }
+
+                    String content = null;
+                    try {
+                        content = responseNode.path("choices")
+                                .path(0)
+                                .path("message")
+                                .path("content")
+                                .asText();
+                    } catch (Exception e) {
+                        System.err.println("Error extracting content from response: " + e.getMessage());
+                        continue;
+                    }
+
+                    if (content != null && !content.trim().isEmpty()) {
+                        // Extract result array from content
+                        JsonNode contentNode = null;
+                        try {
+                            contentNode = objectMapper.readTree(content);
+                        } catch (Exception e) {
+                            System.err.println("Error parsing content as JSON: " + e.getMessage());
+                            continue;
+                        }
+
+                        JsonNode resultNode = contentNode.path("result");
+
+                        if (!resultNode.isMissingNode() && resultNode.isArray()) {
+                            for (JsonNode field : resultNode) {
+                                if (field != null) {
+                                    try {
+                                        Map<String, Object> fieldMap = objectMapper.convertValue(field, Map.class);
+                                        if (fieldMap != null) {
+                                            allResults.add(fieldMap);
+                                        }
+                                    } catch (Exception e) {
+                                        System.err.println("Error converting field to map: " + e.getMessage());
+                                        // Continue with next field
+                                    }
+                                }
+                            }
+
+                            // Calculate confidence for this record
+                            try {
+                                double recordConfidence = calculateOverallConfidence(content);
+                                totalConfidence += recordConfidence;
+                                processedRecords++;
+                            } catch (Exception e) {
+                                System.err.println("Error calculating confidence: " + e.getMessage());
+                                // Continue without confidence calculation
+                            }
+                        }
+                    }
+
+                    // Rate limiting between records
+                    if (records.size() > 1) {
+                        try {
+                            rateLimiter.checkRateLimit(clientId);
+                        } catch (Exception e) {
+                            System.err.println("Rate limiting error: " + e.getMessage());
+                            // Continue without rate limiting
+                        }
+                    }
+
+                } catch (Exception e) {
+                    // Log error but continue processing other records
+                    String errorMsg = e.getMessage();
+                    if (errorMsg == null) {
+                        errorMsg = e.getClass().getSimpleName() + " occurred";
+                    }
+                    System.err.println("Error processing record: " + errorMsg);
+                    // Log the full stack trace for debugging
+                    e.printStackTrace();
+                }
+            }
+
+            // Create final result
+            Map<String, Object> finalResult = new HashMap<>();
+            finalResult.put("result", allResults);
+
+            try {
+                this.mappedResult = objectMapper.writeValueAsString(finalResult);
+                if (this.mappedResult == null) {
+                    this.mappedResult = "{\"result\":[]}";
+                }
+            } catch (Exception e) {
+                System.err.println("Error creating final JSON result: " + e.getMessage());
+                this.mappedResult = "{\"result\":[]}";
+            }
+
+            this.overallConfidence = processedRecords > 0 ? totalConfidence / processedRecords : 0.0;
+
+        } catch (Exception e) {
+            String errorMessage = e.getMessage();
+            if (errorMessage == null) {
+                errorMessage = e.getClass().getSimpleName() + " occurred";
+            }
+
+            // Log the full exception for debugging
+            System.err.println("Full exception in processMultipleRecords:");
+            e.printStackTrace();
+
+            // Provide more context about what might have failed
+            String contextMessage = "Error processing multiple records";
+            if (records != null) {
+                contextMessage += " (processing " + records.size() + " records)";
+            }
+            if (processedRecords > 0) {
+                contextMessage += " (successfully processed " + processedRecords + " records)";
+            }
+
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    contextMessage + ": " + errorMessage);
+        }
+    }
+
     private void validateInputs() throws SmartServiceException {
-        if (inputDictionary == null) {
+        if (inputRecords == null) {
             throw new SmartServiceException(
                     ApparelOrderMapper.class,
                     null,
-                    "Input dictionary is required");
+                    "Input records are required");
+        }
+
+        // Validate inputRecords has a value
+        try {
+            Object value = inputRecords.getValue();
+            if (value == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Input records value is null");
+            }
+        } catch (Exception e) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error accessing input records value: " + e.getMessage());
         }
 
         if (azureOpenAIEndpoint == null || azureOpenAIEndpoint.trim().isEmpty()) {
@@ -401,6 +588,36 @@ public class ApparelOrderMapper extends AppianSmartService {
                     null,
                     "Azure OpenAI API version is required");
         }
+
+        if (targetFields == null) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    null,
+                    "Target fields are required");
+        }
+
+        // Validate targetFields has a value
+        try {
+            Object value = targetFields.getValue();
+            if (value == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Target fields value is null");
+            }
+        } catch (Exception e) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error accessing target fields value: " + e.getMessage());
+        }
+
+        if (userPrompt == null || userPrompt.trim().isEmpty()) {
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    null,
+                    "User prompt is required");
+        }
     }
 
     private String convertInputDictionaryToString(TypedValue inputDictionary) throws SmartServiceException {
@@ -422,23 +639,48 @@ public class ApparelOrderMapper extends AppianSmartService {
     }
 
     private String convertMapToJsonString(Map<String, Object> map) {
-        StringBuilder json = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> entry : map.entrySet()) {
-            if (!first) {
-                json.append(",");
-            }
-            json.append("\"").append(entry.getKey()).append("\":");
-            Object value = entry.getValue();
-            if (value instanceof String) {
-                json.append("\"").append(value.toString().replace("\"", "\\\"")).append("\"");
-            } else {
-                json.append(value.toString());
-            }
-            first = false;
+        if (map == null) {
+            return "{}";
         }
-        json.append("}");
-        return json.toString();
+
+        try {
+            StringBuilder json = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<String, Object> entry : map.entrySet()) {
+                if (entry == null) {
+                    continue;
+                }
+
+                if (!first) {
+                    json.append(",");
+                }
+                String key = entry.getKey();
+                Object value = entry.getValue();
+
+                // Handle null or empty keys
+                if (key == null || key.trim().isEmpty()) {
+                    key = "unknown_key_" + System.currentTimeMillis();
+                }
+
+                json.append("\"").append(key.replace("\"", "\\\"")).append("\":");
+
+                if (value == null) {
+                    json.append("null");
+                } else if (value instanceof String) {
+                    String strValue = value.toString();
+                    json.append("\"").append(strValue.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r"))
+                            .append("\"");
+                } else {
+                    json.append(value.toString());
+                }
+                first = false;
+            }
+            json.append("}");
+            return json.toString();
+        } catch (Exception e) {
+            System.err.println("Error converting map to JSON string: " + e.getMessage());
+            return "{}";
+        }
     }
 
     private String callAzureOpenAI(String inputData) throws SmartServiceException {
@@ -465,13 +707,25 @@ public class ApparelOrderMapper extends AppianSmartService {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
+                String responseBody = response.body();
+                if (responseBody == null) {
+                    responseBody = "No response body";
+                }
                 throw new SmartServiceException(
                         ApparelOrderMapper.class,
                         null,
-                        "OpenAI request failed. Status: " + response.statusCode() + " Response: " + response.body());
+                        "OpenAI request failed. Status: " + response.statusCode() + " Response: " + responseBody);
             }
 
-            return response.body();
+            String responseBody = response.body();
+            if (responseBody == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Received null response body from OpenAI");
+            }
+
+            return responseBody;
 
         } catch (IOException | InterruptedException e) {
             throw new SmartServiceException(
@@ -483,6 +737,10 @@ public class ApparelOrderMapper extends AppianSmartService {
 
     private String buildOpenAIRequestBody(String inputData) throws SmartServiceException {
         try {
+            if (inputData == null) {
+                inputData = "{}";
+            }
+
             // Create the request structure
             Map<String, Object> requestMap = new HashMap<>();
 
@@ -490,9 +748,17 @@ public class ApparelOrderMapper extends AppianSmartService {
             List<Map<String, String>> messages = new ArrayList<>();
 
             // Add system message with detailed instructions
+            String systemPrompt = buildSystemPrompt(userPrompt);
+            if (systemPrompt == null || systemPrompt.trim().isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "System prompt is null or empty");
+            }
+
             Map<String, String> systemMessage = new HashMap<>();
             systemMessage.put("role", "system");
-            systemMessage.put("content", buildSystemPrompt());
+            systemMessage.put("content", systemPrompt);
             messages.add(systemMessage);
 
             // Add user message
@@ -505,7 +771,15 @@ public class ApparelOrderMapper extends AppianSmartService {
             requestMap.put("max_tokens", IntelliMapConfig.MAX_TOKENS); // Use configurable max tokens
             requestMap.put("temperature", IntelliMapConfig.TEMPERATURE);
 
-            return objectMapper.writeValueAsString(requestMap);
+            String requestBody = objectMapper.writeValueAsString(requestMap);
+            if (requestBody == null || requestBody.trim().isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Generated request body is null or empty");
+            }
+
+            return requestBody;
 
         } catch (JsonProcessingException e) {
             throw new SmartServiceException(
@@ -515,45 +789,75 @@ public class ApparelOrderMapper extends AppianSmartService {
         }
     }
 
-    private String buildSystemPrompt() {
-        StringBuilder prompt = new StringBuilder();
-        prompt.append("You are an agent that maps raw order data (passed as an Appian Dictionary) to ");
-        prompt.append("a standardized apparel-ordering schema that contains 106 canonical fields. ");
-        prompt.append("Your goal is to output, for every canonical field, the best-matching value ");
-        prompt.append("found in the input dictionary together with a confidence score.\n\n");
+    private String buildSystemPrompt(String userPrompt) throws SmartServiceException {
+        if (userPrompt == null) {
+            userPrompt = "";
+        }
+        StringBuilder prompt = new StringBuilder(userPrompt);
 
+        // ---- dynamic section ① -- Target fields ------------------------------
         prompt.append("TargetFields:\n");
-        for (Map.Entry<String, String> entry : TARGET_FIELDS.entrySet()) {
-            prompt.append("[").append(entry.getKey()).append("] ").append(entry.getValue()).append("\n");
+        try {
+            // Parse target fields from TypedValue
+            Map<String, String> targetFieldsMap = parseTargetFieldsFromTypedValue(targetFields);
+            if (targetFieldsMap == null || targetFieldsMap.isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "No target fields found after parsing");
+            }
+
+            for (Map.Entry<String, String> entry : targetFieldsMap.entrySet()) {
+                if (entry != null && entry.getKey() != null && entry.getValue() != null) {
+                    prompt.append('[')
+                            .append(entry.getKey())
+                            .append("] ")
+                            .append(entry.getValue())
+                            .append('\n');
+                }
+            }
+        } catch (Exception e) {
+            String errorMessage = e.getMessage();
+            if (errorMessage == null) {
+                errorMessage = e.getClass().getSimpleName() + " occurred";
+            }
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error parsing target fields: " + errorMessage);
         }
 
-        prompt.append("\nSTEPS (follow strictly and in order):\n");
-        prompt.append("1. Review every TargetField (code + name).\n");
-        prompt.append("2. Examine ALL keys and values of the InputDictionary.\n");
-        prompt.append("3. For each TargetField, choose ONE InputDictionary key whose value ");
-        prompt.append("best represents the semantic meaning of the TargetField.\n");
-        prompt.append("4. Assign a confidence score from 0-100 for that pairing.\n");
-        prompt.append("   • 100 = exact semantic & lexical match\n");
-        prompt.append("   • 90-99 = strong match\n");
-        prompt.append("   • 70-89 = reasonable / partial match\n");
-        prompt.append("   • below 70 = weak match (use only if nothing better)\n");
-        prompt.append("5. If no reasonable match exists, output an empty string (\"\") for input_key ");
-        prompt.append("and value, and set confidence to 0.\n");
-        prompt.append("6. No InputDictionary key may be mapped to more than one TargetField.\n");
-        prompt.append("7. Do not invent, transform, or split values—use what is present.\n");
-        prompt.append("8. Produce the final answer strictly in the Output Format shown below.\n\n");
+        // ---- static section ② -- Steps & output format -----------------------
+        prompt.append("""
 
-        prompt.append("Output Format (JSON ONLY — no extra keys, comments, or text):\n");
-        prompt.append("result: [\n");
-        prompt.append("  {\n");
-        prompt.append("    field_code: \"<TargetField code>\",\n");
-        prompt.append("    field_name: \"<TargetField name>\",\n");
-        prompt.append("    input_key: \"<matched InputDictionary key or empty string>\",\n");
-        prompt.append("    value: \"<matched value or empty string>\",\n");
-        prompt.append("    confidence: <integer 0-100>\n");
-        prompt.append("  },\n");
-        prompt.append("  …\n");
-        prompt.append("]");
+                    STEPS (follow strictly and in order):
+                    1. Review every TargetField (code + name).
+                    2. Examine ALL keys and values of the InputDictionary.
+                    3. For each TargetField, choose ONE InputDictionary key whose value \
+                       best represents the semantic meaning of the TargetField.
+                    4. Assign a confidence score from 0-100 for that pairing.
+                       • 100 = exact semantic & lexical match
+                       • 90-99 = strong match
+                       • 70-89 = reasonable / partial match
+                       • below 70 = weak match (use only if nothing better)
+                    5. If no reasonable match exists, output an empty string ("") for input_key \
+                       and value, and set confidence to 0.
+                    6. No InputDictionary key may be mapped to more than one TargetField.
+                    7. Do not invent, transform, or split values—use what is present.
+                    8. Produce the final answer strictly in the Output Format shown below.
+
+                    Output Format (JSON ONLY — no extra keys, comments, or text):
+                    result: [
+                      {
+                        field_code: "<TargetField code>",
+                        field_name: "<TargetField name>",
+                        input_key: "<matched InputDictionary key or empty string>",
+                        value: "<matched value or empty string>",
+                        confidence: <integer 0-100>
+                      },
+                      …
+                    ]
+                """);
 
         return prompt.toString();
     }
@@ -563,7 +867,14 @@ public class ApparelOrderMapper extends AppianSmartService {
 
         for (int attempt = 1; attempt <= IntelliMapConfig.MAX_RETRIES; attempt++) {
             try {
-                return callAzureOpenAI(inputData);
+                String response = callAzureOpenAI(inputData);
+                if (response == null || response.trim().isEmpty()) {
+                    throw new SmartServiceException(
+                            ApparelOrderMapper.class,
+                            null,
+                            "Received null or empty response from OpenAI");
+                }
+                return response;
             } catch (Exception e) {
                 lastException = e;
 
@@ -583,14 +894,31 @@ public class ApparelOrderMapper extends AppianSmartService {
             }
         }
 
+        String errorMessage = "OpenAI request failed after " + IntelliMapConfig.MAX_RETRIES + " attempts";
+        if (lastException != null) {
+            String lastErrorMsg = lastException.getMessage();
+            if (lastErrorMsg != null) {
+                errorMessage += ": " + lastErrorMsg;
+            } else {
+                errorMessage += ": " + lastException.getClass().getSimpleName();
+            }
+        }
+
         throw new SmartServiceException(
                 ApparelOrderMapper.class,
                 lastException,
-                "OpenAI request failed after " + IntelliMapConfig.MAX_RETRIES + " attempts");
+                errorMessage);
     }
 
     private void parseOpenAIResponseWithJackson(String response) throws SmartServiceException {
         try {
+            if (response == null || response.trim().isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Response is null or empty");
+            }
+
             // First, extract the content from the OpenAI response
             JsonNode responseNode = objectMapper.readTree(response);
             String content = responseNode.path("choices")
@@ -641,6 +969,10 @@ public class ApparelOrderMapper extends AppianSmartService {
 
     private double calculateOverallConfidence(String jsonContent) {
         try {
+            if (jsonContent == null || jsonContent.trim().isEmpty()) {
+                return IntelliMapConfig.DEFAULT_CONFIDENCE_SCORE;
+            }
+
             JsonNode contentNode = objectMapper.readTree(jsonContent);
             if (contentNode.isArray()) {
                 double totalConfidence = 0;
@@ -654,15 +986,195 @@ public class ApparelOrderMapper extends AppianSmartService {
                     }
                 }
 
-                return validFields > 0 ? totalConfidence / validFields : 0.0;
+                return validFields > 0 ? totalConfidence / validFields : IntelliMapConfig.DEFAULT_CONFIDENCE_SCORE;
             }
         } catch (Exception e) {
             // If parsing fails, return default confidence
         }
-        return 0.5;
+        return IntelliMapConfig.DEFAULT_CONFIDENCE_SCORE;
     }
 
     private String generateClientId() {
-        return "apparel_mapper_" + System.currentTimeMillis() + "_" + Thread.currentThread().getId();
+        try {
+            return "apparel_mapper_" + System.currentTimeMillis() + "_" + Thread.currentThread().getId();
+        } catch (Exception e) {
+            // Fallback to a simple client ID if there's any issue
+            return "apparel_mapper_" + System.nanoTime();
+        }
+    }
+
+    private Map<String, Object> parseCustomDelimitedFormat(String inputString) throws SmartServiceException {
+        Map<String, Object> recordMap = new HashMap<>();
+
+        try {
+            // Remove any leading/trailing brackets and split by comma
+            String cleanString = inputString.trim();
+            if (cleanString.startsWith("[") && cleanString.endsWith("]")) {
+                cleanString = cleanString.substring(1, cleanString.length() - 1);
+            }
+
+            // Split by comma to get individual field entries
+            String[] fieldEntries = cleanString.split(",");
+            System.out.println("Found " + fieldEntries.length + " field entries to parse");
+
+            for (int i = 0; i < fieldEntries.length; i++) {
+                String fieldEntry = fieldEntries[i].trim();
+                if (fieldEntry.isEmpty()) {
+                    continue;
+                }
+
+                try {
+                    // Split by colon to separate field name and value
+                    String[] parts = fieldEntry.split(":", 2);
+                    if (parts.length == 2) {
+                        String fieldName = parts[0].trim();
+                        String fieldValue = parts[1].trim();
+
+                        // Remove any leading asterisk from field name
+                        if (fieldName.startsWith("*")) {
+                            fieldName = fieldName.substring(1);
+                        }
+
+                        // Skip empty field names
+                        if (!fieldName.isEmpty()) {
+                            // Handle special cases for Appian Dictionary values
+                            if (fieldValue.equals("null") || fieldValue.isEmpty()) {
+                                recordMap.put(fieldName, null);
+                            } else {
+                                recordMap.put(fieldName, fieldValue);
+                            }
+                        }
+                    } else if (parts.length == 1) {
+                        // Field with no value (just a name)
+                        String fieldName = parts[0].trim();
+                        if (fieldName.startsWith("*")) {
+                            fieldName = fieldName.substring(1);
+                        }
+                        if (!fieldName.isEmpty()) {
+                            recordMap.put(fieldName, null);
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println("Error parsing field entry " + i + ": '" + fieldEntry + "' - " + e.getMessage());
+                    // Continue with next field
+                }
+            }
+
+            if (recordMap.isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "No valid fields found in custom delimited format");
+            }
+
+            System.out.println("Parsed " + recordMap.size() + " fields from custom delimited format");
+            System.out.println("Sample fields: " + recordMap.keySet().stream().limit(5).toList());
+            return recordMap;
+
+        } catch (Exception e) {
+            String errorMsg = e.getMessage();
+            if (errorMsg == null) {
+                errorMsg = e.getClass().getSimpleName() + " occurred";
+            }
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error parsing custom delimited format: " + errorMsg);
+        }
+    }
+
+    private Map<String, String> parseTargetFieldsFromTypedValue(TypedValue targetFields) throws SmartServiceException {
+        Map<String, String> targetFieldsMap = new HashMap<>();
+
+        try {
+            if (targetFields == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Target fields TypedValue is null");
+            }
+
+            Object value = targetFields.getValue();
+            if (value == null) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Target fields value is null");
+            }
+
+            // Handle both List and String[] cases
+            if (value instanceof List) {
+                List<?> targetFieldsList = (List<?>) value;
+                for (Object field : targetFieldsList) {
+                    if (field instanceof String) {
+                        String fieldString = (String) field;
+                        if (fieldString != null && !fieldString.trim().isEmpty()) {
+                            // Parse format: "F20:External Material Group" or "F20 - External Material
+                            // Group"
+                            String[] parts = fieldString.split("[:\\-]", 2);
+                            if (parts.length == 2) {
+                                String code = parts[0].trim();
+                                String name = parts[1].trim();
+                                if (!code.isEmpty() && !name.isEmpty()) {
+                                    targetFieldsMap.put(code, name);
+                                }
+                            } else {
+                                // If no separator found, treat the whole string as name with auto-generated
+                                // code
+                                String code = "F" + (targetFieldsMap.size() + 1);
+                                targetFieldsMap.put(code, fieldString.trim());
+                            }
+                        }
+                    }
+                }
+            } else if (value instanceof String[]) {
+                // Handle String array case
+                String[] targetFieldsArray = (String[]) value;
+                for (String fieldString : targetFieldsArray) {
+                    if (fieldString != null && !fieldString.trim().isEmpty()) {
+                        // Parse format: "F20:External Material Group" or "F20 - External Material
+                        // Group"
+                        String[] parts = fieldString.split("[:\\-]", 2);
+                        if (parts.length == 2) {
+                            String code = parts[0].trim();
+                            String name = parts[1].trim();
+                            if (!code.isEmpty() && !name.isEmpty()) {
+                                targetFieldsMap.put(code, name);
+                            }
+                        } else {
+                            // If no separator found, treat the whole string as name with auto-generated
+                            // code
+                            String code = "F" + (targetFieldsMap.size() + 1);
+                            targetFieldsMap.put(code, fieldString.trim());
+                        }
+                    }
+                }
+            } else {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "Target fields must be a list of strings or string array, got: "
+                                + value.getClass().getSimpleName());
+            }
+
+            if (targetFieldsMap.isEmpty()) {
+                throw new SmartServiceException(
+                        ApparelOrderMapper.class,
+                        null,
+                        "No valid target fields found in the list");
+            }
+
+        } catch (Exception e) {
+            String errorMessage = e.getMessage();
+            if (errorMessage == null) {
+                errorMessage = e.getClass().getSimpleName() + " occurred";
+            }
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error parsing target fields from TypedValue: " + errorMessage);
+        }
+
+        return targetFieldsMap;
     }
 }
