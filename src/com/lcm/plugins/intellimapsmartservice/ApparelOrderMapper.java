@@ -332,9 +332,20 @@ public class ApparelOrderMapper extends AppianSmartService {
                         System.out.println("Parsing Appian Dictionary format");
                         System.out.println("Input format preview: "
                                 + (inputString.length() > 200 ? inputString.substring(0, 200) + "..." : inputString));
-                        Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
-                        records.add(recordMap);
-                        System.out.println("Successfully parsed 1 record from Appian Dictionary format");
+
+                        // Always try to parse multiple records first for Appian Dictionary format
+                        List<Map<String, Object>> multipleRecords = parseMultipleRecordsFromAppianFormat(
+                                inputString);
+                        if (!multipleRecords.isEmpty()) {
+                            records.addAll(multipleRecords);
+                            System.out.println("Successfully parsed " + multipleRecords.size()
+                                    + " records from Appian Dictionary format");
+                        } else {
+                            // Fall back to single record parsing
+                            Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
+                            records.add(recordMap);
+                            System.out.println("Successfully parsed 1 record from Appian Dictionary format");
+                        }
                     } else if (inputString.startsWith("{") || inputString.startsWith("[")) {
                         // Try to parse as JSON (but not Appian Dictionary format)
                         JsonNode jsonNode = objectMapper.readTree(inputString);
@@ -1000,6 +1011,101 @@ public class ApparelOrderMapper extends AppianSmartService {
         } catch (Exception e) {
             // Fallback to a simple client ID if there's any issue
             return "apparel_mapper_" + System.nanoTime();
+        }
+    }
+
+    private List<Map<String, Object>> parseMultipleRecordsFromAppianFormat(String inputString)
+            throws SmartServiceException {
+        List<Map<String, Object>> records = new ArrayList<>();
+
+        try {
+            System.out.println("Attempting to parse multiple records from Appian Dictionary format");
+            System.out.println("Total input length: " + inputString.length());
+
+            // Look for patterns that indicate multiple records
+            // Common patterns: multiple [*DOC_ID: entries, or multiple [*LINE#: entries
+            String[] docIdPatterns = inputString.split("\\[\\*DOC_ID:");
+            System.out.println("Found " + (docIdPatterns.length - 1) + " potential DOC_ID patterns");
+
+            if (docIdPatterns.length > 1) {
+                // We have multiple records
+                for (int i = 1; i < docIdPatterns.length; i++) {
+                    String recordData = "[*DOC_ID:" + docIdPatterns[i];
+
+                    // Find the end of this record (look for the next record start or end of string)
+                    int nextRecordStart = -1;
+                    if (i < docIdPatterns.length - 1) {
+                        // Look for the start of the next record
+                        String remainingData = docIdPatterns[i];
+                        int nextStart = remainingData.indexOf("[*DOC_ID:");
+                        if (nextStart != -1) {
+                            recordData = recordData.substring(0,
+                                    recordData.length() - remainingData.length() + nextStart);
+                        }
+                    }
+
+                    try {
+                        Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
+                        if (recordMap != null && !recordMap.isEmpty()) {
+                            records.add(recordMap);
+                            System.out.println("Parsed record " + i + " with " + recordMap.size() + " fields");
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error parsing record " + i + ": " + e.getMessage());
+                        // Continue with next record
+                    }
+                }
+            } else {
+                // Try alternative approach - look for LINE# patterns
+                String[] linePatterns = inputString.split("\\[\\*LINE#:");
+                System.out.println("Found " + (linePatterns.length - 1) + " potential LINE# patterns");
+
+                if (linePatterns.length > 1) {
+                    // We have multiple records based on LINE#
+                    for (int i = 1; i < linePatterns.length; i++) {
+                        String recordData = "[*LINE#:" + linePatterns[i];
+
+                        // Find the end of this record
+                        int nextRecordStart = -1;
+                        if (i < linePatterns.length - 1) {
+                            String remainingData = linePatterns[i];
+                            int nextStart = remainingData.indexOf("[*LINE#:");
+                            if (nextStart != -1) {
+                                recordData = recordData.substring(0,
+                                        recordData.length() - remainingData.length() + nextStart);
+                            }
+                        }
+
+                        try {
+                            Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
+                            if (recordMap != null && !recordMap.isEmpty()) {
+                                records.add(recordMap);
+                                System.out.println("Parsed record " + i + " with " + recordMap.size() + " fields");
+                            }
+                        } catch (Exception e) {
+                            System.err.println("Error parsing record " + i + ": " + e.getMessage());
+                            // Continue with next record
+                        }
+                    }
+                } else {
+                    // No clear record separators found, treat as single record
+                    System.out.println("No clear record separators found, treating as single record");
+                    return new ArrayList<>();
+                }
+            }
+
+            System.out.println("Successfully parsed " + records.size() + " records from multiple record format");
+            return records;
+
+        } catch (Exception e) {
+            String errorMsg = e.getMessage();
+            if (errorMsg == null) {
+                errorMsg = e.getClass().getSimpleName() + " occurred";
+            }
+            throw new SmartServiceException(
+                    ApparelOrderMapper.class,
+                    e,
+                    "Error parsing multiple records from Appian Dictionary format: " + errorMsg);
         }
     }
 
