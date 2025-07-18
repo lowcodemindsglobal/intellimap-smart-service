@@ -11,6 +11,8 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Set;
+import java.util.HashSet;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -233,12 +235,21 @@ public class ApparelOrderMapper extends AppianSmartService {
                     // Try to extract result array from content
                     try {
                         JsonNode contentNode = objectMapper.readTree(content);
-                        JsonNode resultNode = contentNode.path("result");
 
-                        if (!resultNode.isMissingNode() && resultNode.isArray()) {
-                            for (JsonNode field : resultNode) {
-                                Map<String, Object> fieldMap = objectMapper.convertValue(field, Map.class);
-                                allFields.add(fieldMap);
+                        // Check if content is already an array (direct format)
+                        if (contentNode.isArray()) {
+                            for (JsonNode record : contentNode) {
+                                Map<String, Object> recordMap = objectMapper.convertValue(record, Map.class);
+                                allFields.add(recordMap);
+                            }
+                        } else {
+                            // Look for the result array (fallback format)
+                            JsonNode resultNode = contentNode.path("result");
+                            if (!resultNode.isMissingNode() && resultNode.isArray()) {
+                                for (JsonNode record : resultNode) {
+                                    Map<String, Object> recordMap = objectMapper.convertValue(record, Map.class);
+                                    allFields.add(recordMap);
+                                }
                             }
                         }
                     } catch (JsonProcessingException e) {
@@ -247,11 +258,8 @@ public class ApparelOrderMapper extends AppianSmartService {
                 }
             }
 
-            // Create final merged result
-            Map<String, Object> finalResult = new HashMap<>();
-            finalResult.put("result", allFields);
-
-            this.mappedResult = objectMapper.writeValueAsString(finalResult);
+            // Create final merged result - return records directly as array
+            this.mappedResult = objectMapper.writeValueAsString(allFields);
             this.overallConfidence = calculateOverallConfidence(this.mappedResult);
 
         } catch (Exception e) {
@@ -402,22 +410,25 @@ public class ApparelOrderMapper extends AppianSmartService {
             // Process each record
             List<Map<String, Object>> allResults = new ArrayList<>();
             double totalConfidence = 0.0;
+            int currentRecordIndex = 0;
 
             for (Map<String, Object> record : records) {
+                currentRecordIndex++;
                 try {
                     if (record == null) {
-                        System.err.println("Skipping null record");
+                        System.err.println("Skipping null record " + currentRecordIndex);
                         continue;
                     }
 
                     // Convert record to JSON string
                     String recordJson = convertMapToJsonString(record);
                     if (recordJson == null || recordJson.trim().isEmpty()) {
-                        System.err.println("Skipping record with empty JSON");
+                        System.err.println("Skipping record " + currentRecordIndex + " with empty JSON");
                         continue;
                     }
 
                     // Process single record
+                    System.out.println("Processing record " + currentRecordIndex + " of " + records.size());
                     String openAIResponse = callAzureOpenAIWithRetry(recordJson);
                     if (openAIResponse == null || openAIResponse.trim().isEmpty()) {
                         System.err.println("Received null or empty response from OpenAI for record");
@@ -446,6 +457,10 @@ public class ApparelOrderMapper extends AppianSmartService {
                     }
 
                     if (content != null && !content.trim().isEmpty()) {
+                        // Log the AI response content for debugging
+                        System.out.println("AI Response Content Preview: " +
+                                (content.length() > 200 ? content.substring(0, 200) + "..." : content));
+
                         // Extract result array from content
                         JsonNode contentNode = null;
                         try {
@@ -455,19 +470,34 @@ public class ApparelOrderMapper extends AppianSmartService {
                             continue;
                         }
 
-                        JsonNode resultNode = contentNode.path("result");
+                        // Try to find the result array - check both direct array format and wrapped in
+                        // "result" field
+                        JsonNode resultNode = null;
+                        if (contentNode.isArray()) {
+                            // Direct array format as specified in requirements
+                            resultNode = contentNode;
+                            System.out.println("Found direct array format with " + resultNode.size() + " elements");
+                        } else {
+                            // Check for wrapped format
+                            resultNode = contentNode.path("result");
+                            if (!resultNode.isMissingNode() && resultNode.isArray()) {
+                                System.out.println("Found result array with " + resultNode.size() + " elements");
+                            }
+                        }
 
-                        if (!resultNode.isMissingNode() && resultNode.isArray()) {
-                            for (JsonNode field : resultNode) {
-                                if (field != null) {
+                        if (resultNode != null && resultNode.isArray()) {
+                            for (JsonNode resultRecord : resultNode) {
+                                if (resultRecord != null) {
                                     try {
-                                        Map<String, Object> fieldMap = objectMapper.convertValue(field, Map.class);
-                                        if (fieldMap != null) {
-                                            allResults.add(fieldMap);
+                                        Map<String, Object> recordMap = objectMapper.convertValue(resultRecord,
+                                                Map.class);
+                                        if (recordMap != null && !recordMap.isEmpty()) {
+                                            allResults.add(recordMap);
+                                            System.out.println("Added record with " + recordMap.size() + " fields");
                                         }
                                     } catch (Exception e) {
-                                        System.err.println("Error converting field to map: " + e.getMessage());
-                                        // Continue with next field
+                                        System.err.println("Error converting record to map: " + e.getMessage());
+                                        // Continue with next record
                                     }
                                 }
                             }
@@ -481,6 +511,8 @@ public class ApparelOrderMapper extends AppianSmartService {
                                 System.err.println("Error calculating confidence: " + e.getMessage());
                                 // Continue without confidence calculation
                             }
+                        } else {
+                            System.err.println("No valid result array found in response content");
                         }
                     }
 
@@ -506,18 +538,17 @@ public class ApparelOrderMapper extends AppianSmartService {
                 }
             }
 
-            // Create final result
-            Map<String, Object> finalResult = new HashMap<>();
-            finalResult.put("result", allResults);
-
+            // Create final result - return records directly as array
             try {
-                this.mappedResult = objectMapper.writeValueAsString(finalResult);
+                System.out.println("Final results count: " + allResults.size());
+                this.mappedResult = objectMapper.writeValueAsString(allResults);
                 if (this.mappedResult == null) {
-                    this.mappedResult = "{\"result\":[]}";
+                    this.mappedResult = "[]";
                 }
+                System.out.println("Final mapped result length: " + this.mappedResult.length());
             } catch (Exception e) {
                 System.err.println("Error creating final JSON result: " + e.getMessage());
-                this.mappedResult = "{\"result\":[]}";
+                this.mappedResult = "[]";
             }
 
             this.overallConfidence = processedRecords > 0 ? totalConfidence / processedRecords : 0.0;
@@ -838,37 +869,9 @@ public class ApparelOrderMapper extends AppianSmartService {
                     "Error parsing target fields: " + errorMessage);
         }
 
-        // ---- static section ② -- Steps & output format -----------------------
-        prompt.append("""
-
-                    STEPS (follow strictly and in order):
-                    1. Review every TargetField (code + name).
-                    2. Examine ALL keys and values of the InputDictionary.
-                    3. For each TargetField, choose ONE InputDictionary key whose value \
-                       best represents the semantic meaning of the TargetField.
-                    4. Assign a confidence score from 0-100 for that pairing.
-                       • 100 = exact semantic & lexical match
-                       • 90-99 = strong match
-                       • 70-89 = reasonable / partial match
-                       • below 70 = weak match (use only if nothing better)
-                    5. If no reasonable match exists, output an empty string ("") for input_key \
-                       and value, and set confidence to 0.
-                    6. No InputDictionary key may be mapped to more than one TargetField.
-                    7. Do not invent, transform, or split values—use what is present.
-                    8. Produce the final answer strictly in the Output Format shown below.
-
-                    Output Format (JSON ONLY — no extra keys, comments, or text):
-                    result: [
-                      {
-                        field_code: "<TargetField code>",
-                        field_name: "<TargetField name>",
-                        input_key: "<matched InputDictionary key or empty string>",
-                        value: "<matched value or empty string>",
-                        confidence: <integer 0-100>
-                      },
-                      …
-                    ]
-                """);
+        // Add final instruction to ensure proper output format
+        prompt.append(
+                "\n\nIMPORTANT: Return your response as a valid JSON array only, with no additional text or explanations. Each item in the array should be an object with the mapped field values and a confidence_level field. Example format:\n[\n  {\n    \"field1\": \"value1\",\n    \"field2\": \"value2\",\n    \"confidence_level\": \"0.85\"\n  }\n]");
 
         return prompt.toString();
     }
@@ -945,19 +948,38 @@ public class ApparelOrderMapper extends AppianSmartService {
                         "No response content from OpenAI");
             }
 
+            // Log the AI response for debugging
+            System.out.println("AI Response Content Preview: " +
+                    (content.length() > 500 ? content.substring(0, 500) + "..." : content));
+            System.out.println("AI Response Content Length: " + content.length());
+
+            // Check if content looks like JSON
+            String trimmedContent = content.trim();
+            if (trimmedContent.startsWith("[") || trimmedContent.startsWith("{")) {
+                System.out.println("Content appears to be JSON format");
+            } else {
+                System.out.println("Content does NOT appear to be JSON format");
+            }
+
             // Try to parse the content as JSON
             try {
                 JsonNode contentNode = objectMapper.readTree(content);
 
-                // Look for the result array
-                JsonNode resultNode = contentNode.path("result");
-                if (resultNode.isMissingNode()) {
-                    // Try alternative parsing if result is not found
+                // Check if content is already an array (direct format)
+                if (contentNode.isArray()) {
                     this.mappedResult = content;
                     this.overallConfidence = calculateOverallConfidence(content);
                 } else {
-                    this.mappedResult = resultNode.toString();
-                    this.overallConfidence = calculateOverallConfidence(resultNode.toString());
+                    // Look for the result array (fallback format)
+                    JsonNode resultNode = contentNode.path("result");
+                    if (resultNode.isMissingNode()) {
+                        // Try alternative parsing if result is not found
+                        this.mappedResult = content;
+                        this.overallConfidence = calculateOverallConfidence(content);
+                    } else {
+                        this.mappedResult = resultNode.toString();
+                        this.overallConfidence = calculateOverallConfidence(resultNode.toString());
+                    }
                 }
 
             } catch (JsonProcessingException e) {
@@ -987,17 +1009,37 @@ public class ApparelOrderMapper extends AppianSmartService {
             JsonNode contentNode = objectMapper.readTree(jsonContent);
             if (contentNode.isArray()) {
                 double totalConfidence = 0;
-                int validFields = 0;
+                int validRecords = 0;
 
-                for (JsonNode field : contentNode) {
-                    JsonNode confidenceNode = field.path("confidence");
+                for (JsonNode record : contentNode) {
+                    JsonNode confidenceNode = record.path("confidence_level");
                     if (!confidenceNode.isMissingNode()) {
-                        totalConfidence += confidenceNode.asDouble();
-                        validFields++;
+                        try {
+                            totalConfidence += Double.parseDouble(confidenceNode.asText());
+                            validRecords++;
+                        } catch (NumberFormatException e) {
+                            // Skip invalid confidence values
+                        }
+                    } else {
+                        // If no confidence_level found, try to calculate from individual field
+                        // confidences
+                        double recordConfidence = 0;
+                        int fieldCount = 0;
+                        for (JsonNode field : record) {
+                            if (!field.getNodeType().toString().equals("VALUE_STRING") ||
+                                    !field.asText().equals("confidence_level")) {
+                                fieldCount++;
+                            }
+                        }
+                        if (fieldCount > 0) {
+                            recordConfidence = 75.0; // Default confidence if not specified
+                            totalConfidence += recordConfidence;
+                            validRecords++;
+                        }
                     }
                 }
 
-                return validFields > 0 ? totalConfidence / validFields : IntelliMapConfig.DEFAULT_CONFIDENCE_SCORE;
+                return validRecords > 0 ? totalConfidence / validRecords : IntelliMapConfig.DEFAULT_CONFIDENCE_SCORE;
             }
         } catch (Exception e) {
             // If parsing fails, return default confidence
@@ -1014,6 +1056,31 @@ public class ApparelOrderMapper extends AppianSmartService {
         }
     }
 
+    private String generateRecordId(Map<String, Object> record) {
+        try {
+            if (record == null) {
+                return "null_record_" + System.nanoTime();
+            }
+
+            // Try to use DOC_ID as the primary identifier
+            Object docId = record.get("DOC_ID");
+            if (docId != null) {
+                return "doc_" + docId.toString();
+            }
+
+            // Fallback: create a hash of the record content
+            StringBuilder content = new StringBuilder();
+            for (Map.Entry<String, Object> entry : record.entrySet()) {
+                if (entry.getKey() != null && entry.getValue() != null) {
+                    content.append(entry.getKey()).append(":").append(entry.getValue()).append("|");
+                }
+            }
+            return "record_" + content.toString().hashCode();
+        } catch (Exception e) {
+            return "record_" + System.nanoTime();
+        }
+    }
+
     private List<Map<String, Object>> parseMultipleRecordsFromAppianFormat(String inputString)
             throws SmartServiceException {
         List<Map<String, Object>> records = new ArrayList<>();
@@ -1022,33 +1089,34 @@ public class ApparelOrderMapper extends AppianSmartService {
             System.out.println("Attempting to parse multiple records from Appian Dictionary format");
             System.out.println("Total input length: " + inputString.length());
 
-            // Look for patterns that indicate multiple records
-            // Common patterns: multiple [*DOC_ID: entries, or multiple [*LINE#: entries
-            String[] docIdPatterns = inputString.split("\\[\\*DOC_ID:");
-            System.out.println("Found " + (docIdPatterns.length - 1) + " potential DOC_ID patterns");
+            // Use regex to find all record boundaries
+            // Look for patterns like [*DOC_ID: to identify record starts
+            String[] recordStarts = inputString.split("\\[\\*DOC_ID:");
+            System.out.println("Found " + (recordStarts.length - 1) + " potential DOC_ID patterns");
 
-            if (docIdPatterns.length > 1) {
-                // We have multiple records
-                for (int i = 1; i < docIdPatterns.length; i++) {
-                    String recordData = "[*DOC_ID:" + docIdPatterns[i];
+            if (recordStarts.length > 1) {
+                // Process each record starting from the second element (first is empty)
+                for (int i = 1; i < recordStarts.length; i++) {
+                    String recordData = "[*DOC_ID:" + recordStarts[i];
 
-                    // Find the end of this record (look for the next record start or end of string)
-                    int nextRecordStart = -1;
-                    if (i < docIdPatterns.length - 1) {
-                        // Look for the start of the next record
-                        String remainingData = docIdPatterns[i];
-                        int nextStart = remainingData.indexOf("[*DOC_ID:");
+                    // Find the end of this record by looking for the next record start
+                    if (i < recordStarts.length - 1) {
+                        // Look for the next [*DOC_ID: pattern in the current record data
+                        int nextStart = recordData.indexOf(",[*DOC_ID:");
                         if (nextStart != -1) {
-                            recordData = recordData.substring(0,
-                                    recordData.length() - remainingData.length() + nextStart);
+                            recordData = recordData.substring(0, nextStart);
                         }
                     }
 
                     try {
+                        System.out.println("Parsing record data: " +
+                                (recordData.length() > 100 ? recordData.substring(0, 100) + "..." : recordData));
                         Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
                         if (recordMap != null && !recordMap.isEmpty()) {
                             records.add(recordMap);
                             System.out.println("Parsed record " + i + " with " + recordMap.size() + " fields");
+                        } else {
+                            System.err.println("Record " + i + " parsed but resulted in empty map");
                         }
                     } catch (Exception e) {
                         System.err.println("Error parsing record " + i + ": " + e.getMessage());
@@ -1056,41 +1124,16 @@ public class ApparelOrderMapper extends AppianSmartService {
                     }
                 }
             } else {
-                // Try alternative approach - look for LINE# patterns
-                String[] linePatterns = inputString.split("\\[\\*LINE#:");
-                System.out.println("Found " + (linePatterns.length - 1) + " potential LINE# patterns");
-
-                if (linePatterns.length > 1) {
-                    // We have multiple records based on LINE#
-                    for (int i = 1; i < linePatterns.length; i++) {
-                        String recordData = "[*LINE#:" + linePatterns[i];
-
-                        // Find the end of this record
-                        int nextRecordStart = -1;
-                        if (i < linePatterns.length - 1) {
-                            String remainingData = linePatterns[i];
-                            int nextStart = remainingData.indexOf("[*LINE#:");
-                            if (nextStart != -1) {
-                                recordData = recordData.substring(0,
-                                        recordData.length() - remainingData.length() + nextStart);
-                            }
-                        }
-
-                        try {
-                            Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
-                            if (recordMap != null && !recordMap.isEmpty()) {
-                                records.add(recordMap);
-                                System.out.println("Parsed record " + i + " with " + recordMap.size() + " fields");
-                            }
-                        } catch (Exception e) {
-                            System.err.println("Error parsing record " + i + ": " + e.getMessage());
-                            // Continue with next record
-                        }
+                // No clear record separators found, treat as single record
+                System.out.println("No clear record separators found, treating as single record");
+                try {
+                    Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
+                    if (recordMap != null && !recordMap.isEmpty()) {
+                        records.add(recordMap);
+                        System.out.println("Parsed single record with " + recordMap.size() + " fields");
                     }
-                } else {
-                    // No clear record separators found, treat as single record
-                    System.out.println("No clear record separators found, treating as single record");
-                    return new ArrayList<>();
+                } catch (Exception e) {
+                    System.err.println("Error parsing single record: " + e.getMessage());
                 }
             }
 
@@ -1119,12 +1162,38 @@ public class ApparelOrderMapper extends AppianSmartService {
                 cleanString = cleanString.substring(1, cleanString.length() - 1);
             }
 
-            // Split by comma to get individual field entries
-            String[] fieldEntries = cleanString.split(",");
-            System.out.println("Found " + fieldEntries.length + " field entries to parse");
+            // Use a more sophisticated approach to parse field entries
+            // Look for patterns like "FieldName:Value" or "*FieldName:Value"
+            List<String> fieldEntries = new ArrayList<>();
+            int start = 0;
+            int depth = 0;
 
-            for (int i = 0; i < fieldEntries.length; i++) {
-                String fieldEntry = fieldEntries[i].trim();
+            for (int i = 0; i < cleanString.length(); i++) {
+                char c = cleanString.charAt(i);
+                if (c == '[')
+                    depth++;
+                else if (c == ']')
+                    depth--;
+                else if (c == ',' && depth == 0) {
+                    // This is a field separator
+                    String fieldEntry = cleanString.substring(start, i).trim();
+                    if (!fieldEntry.isEmpty()) {
+                        fieldEntries.add(fieldEntry);
+                    }
+                    start = i + 1;
+                }
+            }
+
+            // Add the last field entry
+            String lastFieldEntry = cleanString.substring(start).trim();
+            if (!lastFieldEntry.isEmpty()) {
+                fieldEntries.add(lastFieldEntry);
+            }
+
+            System.out.println("Found " + fieldEntries.size() + " field entries to parse");
+
+            for (int i = 0; i < fieldEntries.size(); i++) {
+                String fieldEntry = fieldEntries.get(i).trim();
                 if (fieldEntry.isEmpty()) {
                     continue;
                 }
