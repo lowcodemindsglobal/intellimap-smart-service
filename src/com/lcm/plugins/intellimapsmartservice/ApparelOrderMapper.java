@@ -174,29 +174,161 @@ public class ApparelOrderMapper extends AppianSmartService {
 
     private Map<String, Object> parseInputToMap(String inputData) throws SmartServiceException {
         try {
-            // Try to parse as JSON first
+            // Try to parse as JSON first, but with better validation
             if (inputData.trim().startsWith("{")) {
-                return objectMapper.readValue(inputData, Map.class);
-            } else {
-                // Handle non-JSON format (fallback)
-                Map<String, Object> result = new HashMap<>();
-                String[] lines = inputData.split("\n");
-                for (String line : lines) {
-                    if (line.contains("=")) {
-                        String[] parts = line.split("=", 2);
-                        if (parts.length == 2) {
-                            result.put(parts[0].trim(), parts[1].trim());
-                        }
+                // Additional validation to ensure it's actually valid JSON before parsing
+                if (isValidJsonFormat(inputData.trim())) {
+                    try {
+                        return objectMapper.readValue(inputData, Map.class);
+                    } catch (JsonProcessingException e) {
+                        System.err.println("JSON parsing failed despite initial validation: " + e.getMessage());
+                        // Fall through to custom parsing
+                    }
+                } else {
+                    System.out.println("Input starts with '{' but doesn't appear to be valid JSON format");
+                }
+            }
+
+            // Handle non-JSON format (fallback)
+            Map<String, Object> result = new HashMap<>();
+            String[] lines = inputData.split("\n");
+            for (String line : lines) {
+                if (line.contains("=")) {
+                    String[] parts = line.split("=", 2);
+                    if (parts.length == 2) {
+                        result.put(parts[0].trim(), parts[1].trim());
                     }
                 }
-                return result;
             }
+            return result;
         } catch (Exception e) {
             throw new SmartServiceException(
                     ApparelOrderMapper.class,
                     e,
                     "Error parsing input data: " + e.getMessage());
         }
+    }
+
+    /**
+     * Determines if the input string is in Appian Dictionary format
+     * Appian Dictionary format has patterns like: [field:value,field2:value2]
+     * This detection is based on STRUCTURE, not specific field names
+     */
+    private boolean isAppianDictionaryFormat(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            return false;
+        }
+
+        String trimmed = input.trim();
+
+        // Must start with [ for both formats, but we need to distinguish
+        if (!trimmed.startsWith("[")) {
+            return false;
+        }
+
+        // Look for Appian Dictionary structural patterns:
+
+        // 1. Multiple records separated by ]; [ - this is definitely Appian Dictionary
+        if (trimmed.contains("]; [")) {
+            return true;
+        }
+
+        // 2. Alternative separators like ] [ or ],[
+        if (trimmed.contains("] [") || trimmed.contains("],[")) {
+            return true;
+        }
+
+        // 3. Look for unquoted field names followed by colons (typical of Appian
+        // Dictionary)
+        // JSON would have quoted field names like "fieldName":
+        // This regex looks for: [optionally preceded by *] word characters [possibly
+        // with spaces] followed by colon
+        if (trimmed.matches(".*\\[\\*?[A-Za-z][A-Za-z0-9\\s_-]*:.*")) {
+            return true;
+        }
+
+        // 4. Look for the general pattern of unquoted identifiers followed by colons
+        // This catches patterns like [SomeFieldName:value, AnotherField:value2]
+        if (trimmed.matches(".*\\[[^\\[\\]\"]*[A-Za-z][^\\[\\]\"]*:.*")) {
+            return true;
+        }
+
+        // 5. If it looks like JSON array (starts with [ but has quoted strings and
+        // proper JSON structure)
+        if (trimmed.matches("^\\[\\s*\\{.*") || trimmed.matches("^\\[\\s*\".*")) {
+            // Looks like JSON array
+            return false;
+        }
+
+        // 6. Check for comma-separated unquoted field:value pairs within brackets
+        // This pattern: [field1:value1,field2:value2,field3:value3]
+        if (trimmed.matches("^\\[[^\\[\\]]*:[^\\[\\]]*(?:,[^\\[\\]]*:[^\\[\\]]*)*\\]$")) {
+            return true;
+        }
+
+        // Default to false if we can't determine
+        return false;
+    }
+
+    /**
+     * Validates if a string is likely to be valid JSON format
+     * This helps avoid passing non-JSON strings to the JSON parser
+     */
+    private boolean isValidJsonFormat(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            return false;
+        }
+
+        String trimmed = input.trim();
+
+        // Basic structural checks for JSON
+        if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            // Check if it contains basic JSON structure indicators
+            // Must have at least one colon (for key-value pairs)
+            if (!trimmed.contains(":")) {
+                return false;
+            }
+
+            // Quick check to see if it has balanced braces
+            int braceCount = 0;
+            boolean inQuotes = false;
+            char prevChar = ' ';
+
+            for (char c : trimmed.toCharArray()) {
+                if (c == '"' && prevChar != '\\') {
+                    inQuotes = !inQuotes;
+                } else if (!inQuotes) {
+                    if (c == '{')
+                        braceCount++;
+                    else if (c == '}')
+                        braceCount--;
+                }
+                prevChar = c;
+            }
+
+            return braceCount == 0;
+        } else if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            // JSON array validation
+            int bracketCount = 0;
+            boolean inQuotes = false;
+            char prevChar = ' ';
+
+            for (char c : trimmed.toCharArray()) {
+                if (c == '"' && prevChar != '\\') {
+                    inQuotes = !inQuotes;
+                } else if (!inQuotes) {
+                    if (c == '[')
+                        bracketCount++;
+                    else if (c == ']')
+                        bracketCount--;
+                }
+                prevChar = c;
+            }
+
+            return bracketCount == 0;
+        }
+
+        return false;
     }
 
     private List<List<String>> createChunks(List<String> inputKeys, int maxKeysPerChunk) {
@@ -334,8 +466,9 @@ public class ApparelOrderMapper extends AppianSmartService {
                                 "Input string is empty");
                     }
 
-                    // Check if it looks like Appian Dictionary format (starts with [*)
-                    if (inputString.startsWith("[*")) {
+                    // Check if it looks like Appian Dictionary format
+                    // Appian Dictionary can start with [* or just [ followed by field names
+                    if (inputString.startsWith("[*") || isAppianDictionaryFormat(inputString)) {
                         // Try to parse as Appian Dictionary format
                         System.out.println("Parsing Appian Dictionary format");
                         System.out.println("Input format preview: "
@@ -354,32 +487,60 @@ public class ApparelOrderMapper extends AppianSmartService {
                             records.add(recordMap);
                             System.out.println("Successfully parsed 1 record from Appian Dictionary format");
                         }
-                    } else if (inputString.startsWith("{") || inputString.startsWith("[")) {
+                    } else if (inputString.startsWith("{")
+                            || (inputString.startsWith("[") && !isAppianDictionaryFormat(inputString))) {
                         // Try to parse as JSON (but not Appian Dictionary format)
-                        JsonNode jsonNode = objectMapper.readTree(inputString);
-                        if (jsonNode.isArray()) {
-                            // It's a JSON array of records
-                            System.out.println("Parsing JSON array with " + jsonNode.size() + " elements");
-                            for (JsonNode node : jsonNode) {
-                                if (node.isObject()) {
-                                    Map<String, Object> recordMap = objectMapper.convertValue(node, Map.class);
-                                    records.add(recordMap);
-                                } else {
-                                    System.err.println("Skipping non-object element in JSON array");
-                                }
+                        try {
+                            // Add validation before attempting JSON parsing
+                            if (!isValidJsonFormat(inputString)) {
+                                System.err.println(
+                                        "Input appears to start with JSON markers but is not valid JSON format");
+                                throw new SmartServiceException(
+                                        ApparelOrderMapper.class,
+                                        null,
+                                        "Input appears to be malformed JSON. If your data starts with words like 'Prod', 'Product', etc., it should be formatted as Appian Dictionary format with [*field:value] structure.");
                             }
-                        } else if (jsonNode.isObject()) {
-                            // It's a single JSON object
-                            System.out.println("Parsing single JSON object");
-                            Map<String, Object> recordMap = objectMapper.convertValue(jsonNode, Map.class);
-                            records.add(recordMap);
-                        } else {
-                            throw new SmartServiceException(
-                                    ApparelOrderMapper.class,
-                                    null,
-                                    "JSON string must contain an object or array, got: " + jsonNode.getNodeType());
+
+                            JsonNode jsonNode = objectMapper.readTree(inputString);
+                            if (jsonNode.isArray()) {
+                                // It's a JSON array of records
+                                System.out.println("Parsing JSON array with " + jsonNode.size() + " elements");
+                                for (JsonNode node : jsonNode) {
+                                    if (node.isObject()) {
+                                        Map<String, Object> recordMap = objectMapper.convertValue(node, Map.class);
+                                        records.add(recordMap);
+                                    } else {
+                                        System.err.println("Skipping non-object element in JSON array");
+                                    }
+                                }
+                            } else if (jsonNode.isObject()) {
+                                // It's a single JSON object
+                                System.out.println("Parsing single JSON object");
+                                Map<String, Object> recordMap = objectMapper.convertValue(jsonNode, Map.class);
+                                records.add(recordMap);
+                            } else {
+                                throw new SmartServiceException(
+                                        ApparelOrderMapper.class,
+                                        null,
+                                        "JSON string must contain an object or array, got: " + jsonNode.getNodeType());
+                            }
+                            System.out.println("Successfully parsed " + records.size() + " records from JSON string");
+                        } catch (JsonProcessingException e) {
+                            // Provide specific guidance for the 'Prod' token error
+                            String errorMsg = e.getMessage();
+                            if (errorMsg != null && errorMsg.contains("Unrecognized token 'Prod'")) {
+                                throw new SmartServiceException(
+                                        ApparelOrderMapper.class,
+                                        e,
+                                        "JSON parsing failed due to unrecognized token 'Prod'. This typically means your input data contains text starting with 'Prod' (like 'Production', 'Product') but is not properly formatted as JSON. Please use Appian Dictionary format [*field:value] or ensure your JSON is properly quoted.");
+                            } else {
+                                throw new SmartServiceException(
+                                        ApparelOrderMapper.class,
+                                        e,
+                                        "JSON parsing failed: " + errorMsg
+                                                + ". Please check that your input is valid JSON format.");
+                            }
                         }
-                        System.out.println("Successfully parsed " + records.size() + " records from JSON string");
                     } else {
                         // Try to parse as other custom delimited format
                         System.out.println("Parsing other custom delimited format");
@@ -440,7 +601,17 @@ public class ApparelOrderMapper extends AppianSmartService {
                     try {
                         responseNode = objectMapper.readTree(openAIResponse);
                     } catch (Exception e) {
-                        System.err.println("Error parsing OpenAI response JSON: " + e.getMessage());
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Unrecognized token 'Prod'")) {
+                            System.err.println(
+                                    "OpenAI response contains unrecognized 'Prod' token. This usually means the AI returned malformed JSON. Response preview: "
+                                            +
+                                            (openAIResponse.length() > 300 ? openAIResponse.substring(0, 300) + "..."
+                                                    : openAIResponse));
+                        } else {
+                            System.err.println("Error parsing OpenAI response JSON: " + errorMsg);
+                        }
+                        System.err.println("Skipping this record due to malformed OpenAI response");
                         continue;
                     }
 
@@ -466,7 +637,18 @@ public class ApparelOrderMapper extends AppianSmartService {
                         try {
                             contentNode = objectMapper.readTree(content);
                         } catch (Exception e) {
-                            System.err.println("Error parsing content as JSON: " + e.getMessage());
+                            String errorMsg = e.getMessage();
+                            if (errorMsg != null && errorMsg.contains("Unrecognized token 'Prod'")) {
+                                System.err.println(
+                                        "AI returned content with unrecognized 'Prod' token. The AI response is not valid JSON.");
+                                System.err.println("Content preview: "
+                                        + (content.length() > 300 ? content.substring(0, 300) + "..." : content));
+                                System.err.println(
+                                        "This usually means the AI needs better instructions to return valid JSON format.");
+                            } else {
+                                System.err.println("Error parsing AI response content as JSON: " + errorMsg);
+                            }
+                            System.err.println("Skipping this record due to malformed AI response content");
                             continue;
                         }
 
@@ -871,7 +1053,12 @@ public class ApparelOrderMapper extends AppianSmartService {
 
         // Add final instruction to ensure proper output format
         prompt.append(
-                "\n\nIMPORTANT: Return your response as a valid JSON array only, with no additional text or explanations. Each item in the array should be an object with the mapped field values and a confidence_level field. Example format:\n[\n  {\n    \"field1\": \"value1\",\n    \"field2\": \"value2\",\n    \"confidence_level\": \"0.85\"\n  }\n]");
+                "\n\nCRITICAL: You MUST return ONLY a valid JSON array with no additional text, explanations, or commentary. "
+                        +
+                        "Do NOT include words like 'Product', 'Production', etc. outside of quoted JSON strings. " +
+                        "Each item in the array should be an object with the mapped field values and a confidence_level field. "
+                        +
+                        "Ensure all strings are properly quoted. Example format provided in the user prompt.");
 
         return prompt.toString();
     }
@@ -934,7 +1121,24 @@ public class ApparelOrderMapper extends AppianSmartService {
             }
 
             // First, extract the content from the OpenAI response
-            JsonNode responseNode = objectMapper.readTree(response);
+            JsonNode responseNode;
+            try {
+                responseNode = objectMapper.readTree(response);
+            } catch (JsonProcessingException e) {
+                String errorMsg = e.getMessage();
+                if (errorMsg != null && errorMsg.contains("Unrecognized token 'Prod'")) {
+                    throw new SmartServiceException(
+                            ApparelOrderMapper.class,
+                            e,
+                            "Failed to parse OpenAI response due to unrecognized token 'Prod'. This suggests the API returned malformed JSON. Please check your Azure OpenAI configuration and try again.");
+                } else {
+                    throw new SmartServiceException(
+                            ApparelOrderMapper.class,
+                            e,
+                            "Failed to parse OpenAI response as JSON: " + errorMsg);
+                }
+            }
+
             String content = responseNode.path("choices")
                     .path(0)
                     .path("message")
@@ -961,7 +1165,7 @@ public class ApparelOrderMapper extends AppianSmartService {
                 System.out.println("Content does NOT appear to be JSON format");
             }
 
-            // Try to parse the content as JSON
+            // Try to parse the content as JSON with improved error handling
             try {
                 JsonNode contentNode = objectMapper.readTree(content);
 
@@ -983,16 +1187,23 @@ public class ApparelOrderMapper extends AppianSmartService {
                 }
 
             } catch (JsonProcessingException e) {
-                // If content is not valid JSON, treat it as plain text
-                this.mappedResult = content;
-                this.overallConfidence = calculateOverallConfidence(content);
+                String errorMsg = e.getMessage();
+                if (errorMsg != null && errorMsg.contains("Unrecognized token 'Prod'")) {
+                    System.err.println("AI response content contains unrecognized 'Prod' token. Content preview: " +
+                            (content.length() > 200 ? content.substring(0, 200) + "..." : content));
+                    // If content is not valid JSON, treat it as plain text
+                    this.mappedResult = content;
+                    this.overallConfidence = calculateOverallConfidence(content);
+                } else {
+                    // If content is not valid JSON, treat it as plain text
+                    System.err.println("Content is not valid JSON, treating as plain text: " + errorMsg);
+                    this.mappedResult = content;
+                    this.overallConfidence = calculateOverallConfidence(content);
+                }
             }
 
-        } catch (JsonProcessingException e) {
-            throw new SmartServiceException(
-                    ApparelOrderMapper.class,
-                    e,
-                    "Error parsing JSON response: " + e.getMessage());
+        } catch (SmartServiceException e) {
+            throw e; // Re-throw SmartServiceExceptions as-is
         } catch (Exception e) {
             // Fallback: treat the entire response as mapped data
             this.mappedResult = response;
@@ -1089,55 +1300,102 @@ public class ApparelOrderMapper extends AppianSmartService {
             System.out.println("Attempting to parse multiple records from Appian Dictionary format");
             System.out.println("Total input length: " + inputString.length());
 
-            // Use regex to find all record boundaries
-            // Look for patterns like [*DOC_ID: to identify record starts
-            String[] recordStarts = inputString.split("\\[\\*DOC_ID:");
-            System.out.println("Found " + (recordStarts.length - 1) + " potential DOC_ID patterns");
+            // Generic approach: split by the standard Appian Dictionary record separator ];
+            // [
+            if (inputString.contains("]; [")) {
+                // Records separated by ]; [ pattern - this is the most common case
+                String[] recordStarts = inputString.split("\\];\\s*\\[");
+                System.out.println("Found " + recordStarts.length + " records separated by ']; [' pattern");
 
-            if (recordStarts.length > 1) {
-                // Process each record starting from the second element (first is empty)
-                for (int i = 1; i < recordStarts.length; i++) {
-                    String recordData = "[*DOC_ID:" + recordStarts[i];
+                // Process each record
+                for (int i = 0; i < recordStarts.length; i++) {
+                    String recordData = recordStarts[i].trim();
 
-                    // Find the end of this record by looking for the next record start
-                    if (i < recordStarts.length - 1) {
-                        // Look for the next [*DOC_ID: pattern in the current record data
-                        int nextStart = recordData.indexOf(",[*DOC_ID:");
-                        if (nextStart != -1) {
-                            recordData = recordData.substring(0, nextStart);
-                        }
+                    // Add back the brackets that were removed by split
+                    if (i == 0 && !recordData.startsWith("[")) {
+                        recordData = "[" + recordData;
+                    }
+                    if (i == recordStarts.length - 1 && !recordData.endsWith("]")) {
+                        recordData = recordData + "]";
+                    }
+                    if (i > 0 && i < recordStarts.length - 1) {
+                        recordData = "[" + recordData + "]";
                     }
 
                     try {
-                        System.out.println("Parsing record data: " +
+                        System.out.println("Parsing record " + (i + 1) + " data: " +
                                 (recordData.length() > 100 ? recordData.substring(0, 100) + "..." : recordData));
                         Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
                         if (recordMap != null && !recordMap.isEmpty()) {
                             records.add(recordMap);
-                            System.out.println("Parsed record " + i + " with " + recordMap.size() + " fields");
+                            System.out.println("Parsed record " + (i + 1) + " with " + recordMap.size() + " fields");
                         } else {
-                            System.err.println("Record " + i + " parsed but resulted in empty map");
+                            System.err.println("Record " + (i + 1) + " parsed but resulted in empty map");
                         }
                     } catch (Exception e) {
-                        System.err.println("Error parsing record " + i + ": " + e.getMessage());
+                        System.err.println("Error parsing record " + (i + 1) + ": " + e.getMessage());
                         // Continue with next record
                     }
                 }
             } else {
-                // No clear record separators found, treat as single record
-                System.out.println("No clear record separators found, treating as single record");
-                try {
-                    Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
-                    if (recordMap != null && !recordMap.isEmpty()) {
-                        records.add(recordMap);
-                        System.out.println("Parsed single record with " + recordMap.size() + " fields");
+                // Single record or other separation pattern
+                // Try to detect if there are multiple records by looking for pattern like "] ["
+                // or "],["
+                String[] possibleRecords = null;
+
+                if (inputString.contains("] [")) {
+                    // Alternative separator pattern
+                    possibleRecords = inputString.split("\\]\\s*\\[");
+                    System.out.println(
+                            "Found " + possibleRecords.length + " potential records separated by '] [' pattern");
+                } else if (inputString.contains("],[")) {
+                    // Another alternative separator pattern
+                    possibleRecords = inputString.split("\\],\\s*\\[");
+                    System.out.println("Found " + possibleRecords.length + " potential records separated by '],['");
+                }
+
+                if (possibleRecords != null && possibleRecords.length > 1) {
+                    // Process multiple records
+                    for (int i = 0; i < possibleRecords.length; i++) {
+                        String recordData = possibleRecords[i].trim();
+
+                        // Add back brackets
+                        if (!recordData.startsWith("[")) {
+                            recordData = "[" + recordData;
+                        }
+                        if (!recordData.endsWith("]")) {
+                            recordData = recordData + "]";
+                        }
+
+                        try {
+                            System.out.println("Parsing alternative record " + (i + 1) + " data: " +
+                                    (recordData.length() > 100 ? recordData.substring(0, 100) + "..." : recordData));
+                            Map<String, Object> recordMap = parseCustomDelimitedFormat(recordData);
+                            if (recordMap != null && !recordMap.isEmpty()) {
+                                records.add(recordMap);
+                                System.out.println("Parsed alternative record " + (i + 1) + " with " + recordMap.size()
+                                        + " fields");
+                            }
+                        } catch (Exception e) {
+                            System.err.println("Error parsing alternative record " + (i + 1) + ": " + e.getMessage());
+                        }
                     }
-                } catch (Exception e) {
-                    System.err.println("Error parsing single record: " + e.getMessage());
+                } else {
+                    // Single record - parse as-is
+                    System.out.println("No clear record separators found, treating as single record");
+                    try {
+                        Map<String, Object> recordMap = parseCustomDelimitedFormat(inputString);
+                        if (recordMap != null && !recordMap.isEmpty()) {
+                            records.add(recordMap);
+                            System.out.println("Parsed single record with " + recordMap.size() + " fields");
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Error parsing single record: " + e.getMessage());
+                    }
                 }
             }
 
-            System.out.println("Successfully parsed " + records.size() + " records from multiple record format");
+            System.out.println("Successfully parsed " + records.size() + " records from Appian Dictionary format");
             return records;
 
         } catch (Exception e) {
