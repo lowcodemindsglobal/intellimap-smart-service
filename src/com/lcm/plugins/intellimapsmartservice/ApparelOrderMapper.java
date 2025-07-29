@@ -1060,7 +1060,15 @@ public class ApparelOrderMapper extends AppianSmartService {
                         +
                         "Ensure all strings are properly quoted. Example format provided in the user prompt.");
 
-        return prompt.toString();
+        String finalPrompt = prompt.toString();
+
+        // Log the system prompt
+        System.out.println("=== SYSTEM PROMPT START ===");
+        System.out.println(finalPrompt);
+        System.out.println("=== SYSTEM PROMPT END ===");
+        System.out.println("System prompt length: " + finalPrompt.length() + " characters");
+
+        return finalPrompt;
     }
 
     private String callAzureOpenAIWithRetry(String inputData) throws SmartServiceException {
