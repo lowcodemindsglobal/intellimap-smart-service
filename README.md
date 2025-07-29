@@ -1,6 +1,6 @@
 # IntelliMap Smart Service Plug-In
 
-[![Version](https://img.shields.io/badge/version-v41.0.0-blue.svg)](https://github.com/your-org/intellimapsmartservice)
+[![Version](https://img.shields.io/badge/version-v1.0.0-blue.svg)](https://github.com/your-org/intellimapsmartservice)
 [![Java](https://img.shields.io/badge/Java-17+-orange.svg)](https://www.oracle.com/java/)
 [![Appian](https://img.shields.io/badge/Appian-Compatible-green.svg)](https://appian.com/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
